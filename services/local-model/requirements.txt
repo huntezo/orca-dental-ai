@@ -1,0 +1,15 @@
+# Local Model Server Dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pillow==10.2.0
+numpy==1.26.3
+
+# TODO: Add your actual ML framework dependencies
+# Examples:
+# torch==2.1.2
+# torchvision==0.16.2
+# tensorflow==2.15.0
+# transformers==4.36.2
+# opencv-python==4.9.0.80

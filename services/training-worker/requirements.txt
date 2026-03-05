@@ -1,0 +1,11 @@
+# Training Worker Dependencies
+supabase==2.3.0
+aiohttp==3.9.1
+python-dotenv==1.0.0
+
+# TODO: Add ML training dependencies
+# torch==2.1.2
+# transformers==4.36.2
+# datasets==2.14.0
+# accelerate==0.25.0
+# wandb==0.16.0

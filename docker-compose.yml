@@ -1,0 +1,190 @@
+# Orca Dental AI - Docker Compose
+# Enterprise deployment configuration
+
+version: "3.8"
+
+services:
+  # Next.js Web Application
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    networks:
+      - orca-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # AI Worker Service (Enterprise)
+  ai-worker:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - WORKER_ID=worker-1
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-cloud}
+    networks:
+      - orca-network
+    restart: unless-stopped
+    depends_on:
+      - local-model
+      - edge-node
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Training Worker Service
+  training-worker:
+    build:
+      context: ./services/training-worker
+      dockerfile: Dockerfile
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - POLL_INTERVAL=10
+      - TRAINING_OUTPUT_DIR=/models/trained
+      - DEFAULT_EPOCHS=10
+    volumes:
+      - training-models:/models/trained
+    networks:
+      - orca-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Local AI Model Server
+  local-model:
+    build:
+      context: ./services/local-model
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_VERSION=v1.0
+      - PORT=8000
+      - HOST=0.0.0.0
+      - CONFIDENCE_THRESHOLD=0.85
+      - MAX_IMAGE_SIZE=2048
+    volumes:
+      - local-models:/models
+    networks:
+      - orca-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Edge Node Service (Regional deployment)
+  edge-node:
+    build:
+      context: ./services/edge-node
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - NODE_ID=edge-node-local
+      - REGION=${EDGE_REGION:-local}
+      - PORT=8000
+      - HOST=0.0.0.0
+      - HMAC_SECRET=${EDGE_HMAC_SECRET}
+      - CENTRAL_API_URL=http://web:3000
+      - MODEL_PATH=/models
+      - SUPPORTS_LOCAL_MODELS=true
+    volumes:
+      - edge-models:/models
+    networks:
+      - orca-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Redis (for caching and sessions)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - orca-network
+    restart: unless-stopped
+
+  # Prometheus (metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - orca-network
+    restart: unless-stopped
+
+  # Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    networks:
+      - orca-network
+    restart: unless-stopped
+
+networks:
+  orca-network:
+    driver: bridge
+
+volumes:
+  local-models:
+  edge-models:
+  training-models:
+  redis-data:
+  prometheus-data:
+  grafana-data:
